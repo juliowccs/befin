@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="app/icon.svg" alt="befin logo" width="84" height="84" />
+</p>
+
 # befin
 
 Aplicação web mobile-first de **envelope budgeting** (_orçamento por envelopes_) projetada para dividir dinheiro concentrado em "Caixinhas" de diferentes bancos e realizar conciliação bancária periódica com precisão em centavos.
