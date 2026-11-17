@@ -23,7 +23,6 @@ import {
   NewTransactionDialog,
   type NewTransactionPreset,
 } from "@/components/transactions/new-transaction-dialog";
-import { seedDefaultDataIfEmpty } from "@/lib/db";
 import { editorialSpring, fastTransition } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 
@@ -72,11 +71,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   const [isSettingsOpen, setIsSettingsOpen] = React.useState(false);
   const [settingsTab, setSettingsTab] = React.useState<SettingsTab>("banks");
-
-  React.useEffect(() => {
-    if (isPublicRoute) return;
-    void seedDefaultDataIfEmpty();
-  }, [isPublicRoute]);
 
   const openNewTransaction = React.useCallback(
     (preset?: NewTransactionPreset) => {
