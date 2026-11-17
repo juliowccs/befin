@@ -26,17 +26,27 @@ O **befin** segue uma arquitetura **Local-First**:
 
 ```text
 ├── app/
-│   ├── api/sync/          # Endpoint transacional de sincronização (Push LWW + Pull)
+│   ├── api/
+│   │   ├── account/       # Portabilidade (GET JSON) e exclusão LGPD (DELETE)
+│   │   ├── auth/[...all]/ # Rotas do Better Auth (Google OAuth + E-mail/Senha)
+│   │   └── sync/          # Endpoint transacional de sincronização (Push LWW + Pull)
+│   ├── cadastro/          # Criação de conta com aceite LGPD
 │   ├── caixinhas/         # Gestão de caixinhas, distribuição e transferências
 │   ├── conciliar/         # Calculadora da Equação da Verdade e auditoria
+│   ├── configuracoes/     # Configurações, bancos, terceiros e dados LGPD
 │   ├── extrato/           # Histórico, filtros e quitação em lote
-│   └── page.tsx           # Visão geral (Início)
+│   ├── inicio/            # Painel principal (Visão geral)
+│   ├── login/             # Login com Google ou E-mail/Senha
+│   ├── privacidade/       # Política de Privacidade (LGPD)
+│   ├── relatorios/        # KPIs e 6 gráficos interativos
+│   ├── termos/            # Termos de Uso
+│   └── page.tsx           # Landing Page pública
 ├── drizzle/               # Migrations SQL versionadas
 └── src/
-    ├── components/        # Componentes de UI (shadcn/ui) e domínio
+    ├── components/        # Componentes de UI (shadcn/ui), Charts e domínio
     ├── db/                # Cliente Turso e schema Drizzle ORM
     ├── hooks/             # Hooks reativos com Dexie
-    └── lib/               # Banco local (Dexie), domínio financeiro (ledger/money) e testes
+    └── lib/               # Banco local (Dexie), domínio (ledger/money/analytics) e testes
 ```
 
 ---
@@ -47,7 +57,9 @@ O **befin** segue uma arquitetura **Local-First**:
 - **[TypeScript](https://www.typescriptlang.org/)** — Tipagem estática (`strict`)
 - **[Tailwind CSS](https://tailwindcss.com/)** & **[shadcn/ui](https://ui.shadcn.com/)** — Design system (_Warm Editorial_) e componentes acessíveis
 - **[Phosphor Icons](https://phosphoricons.com/)** — Ícones da interface
-- **[Motion](https://motion.dev/)** — Transições e micro-interações
+- **[Motion](https://motion.dev/)** — Transições e micro-interações (`LazyMotion`)
+- **[Recharts](https://recharts.org/)** — Gráficos interativos integrados ao shadcn/ui Charts
+- **[Better Auth](https://www.better-auth.com/)** — Autenticação (Google OAuth + E-mail/Senha)
 - **[Dexie.js](https://dexie.org/)** — Persistência local-first no IndexedDB
 - **[Drizzle ORM](https://orm.drizzle.team/)** & **[Turso (libSQL)](https://turso.tech/)** — Schema tipado, migrations versionadas e banco na nuvem
 - **[Vitest](https://vitest.dev/)** — Suíte de testes unitários
@@ -75,6 +87,10 @@ Crie/preencha o arquivo `.env.local` na raiz do projeto:
 ```env
 TURSO_DATABASE_URL=libsql://seu-banco.turso.io
 TURSO_AUTH_TOKEN=seu-token-aqui
+BETTER_AUTH_SECRET=seu-segredo-32-chars
+BETTER_AUTH_URL=http://localhost:3000
+GOOGLE_CLIENT_ID=seu-google-client-id
+GOOGLE_CLIENT_SECRET=seu-google-client-secret
 ```
 
 ### 3. Aplicar migrations no Turso
