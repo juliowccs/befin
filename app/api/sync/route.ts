@@ -1,4 +1,4 @@
-import { gt, sql } from "drizzle-orm";
+import { and, eq, gt, sql } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { getTursoDb } from "@/src/db/client";
 import {
@@ -8,30 +8,75 @@ import {
   thirdParties,
   transactions,
 } from "@/src/db/schema";
-import type {
-  BankRecord,
-  EnvelopeRecord,
-  ReconciliationRecord,
-  ThirdPartyRecord,
-  TransactionRecord,
-} from "@/src/lib/ledger";
+import { authInstance } from "@/src/lib/auth";
+import { checkRateLimit } from "@/src/lib/rate-limit";
+import { syncPayloadSchema } from "@/src/lib/schemas/sync";
 
-interface SyncPayload {
-  last_synced_at?: number;
-  changes?: {
-    banks?: BankRecord[];
-    envelopes?: EnvelopeRecord[];
-    third_parties?: ThirdPartyRecord[];
-    transactions?: TransactionRecord[];
-    reconciliations?: ReconciliationRecord[];
-  };
-}
+const MAX_SYNC_BODY_BYTES = 2 * 1024 * 1024; // 2 MiB
 
 export async function POST(req: Request) {
   try {
-    const body = (await req.json()) as SyncPayload;
-    const lastSyncedAt = Number(body.last_synced_at ?? 0);
-    const changes = body.changes ?? {};
+    const session = await authInstance().api.getSession({
+      headers: req.headers,
+    });
+
+    if (!session?.user?.id) {
+      return NextResponse.json(
+        { error: "Autenticação necessária para sincronizar." },
+        { status: 401 },
+      );
+    }
+
+    const rate = checkRateLimit(`sync:${session.user.id}`, {
+      limit: 60,
+      windowMs: 60 * 1000,
+    });
+    if (!rate.allowed) {
+      return NextResponse.json(
+        { error: "Limite de sincronizações excedido. Aguarde um instante." },
+        {
+          status: 429,
+          headers: { "Retry-After": String(rate.retryAfterSeconds) },
+        },
+      );
+    }
+
+    const contentLength = Number(req.headers.get("content-length") ?? "0");
+    if (Number.isFinite(contentLength) && contentLength > MAX_SYNC_BODY_BYTES) {
+      return NextResponse.json(
+        { error: "Payload de sincronização excede o tamanho máximo permitido." },
+        { status: 413 },
+      );
+    }
+
+    let rawBody: unknown;
+    try {
+      const rawText = await req.text();
+      if (Buffer.byteLength(rawText, "utf8") > MAX_SYNC_BODY_BYTES) {
+        return NextResponse.json(
+          { error: "Payload de sincronização excede o tamanho máximo permitido." },
+          { status: 413 },
+        );
+      }
+      rawBody = JSON.parse(rawText);
+    } catch {
+      return NextResponse.json(
+        { error: "JSON inválido no corpo da sincronização." },
+        { status: 400 },
+      );
+    }
+
+    const parsed = syncPayloadSchema.safeParse(rawBody);
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: "Payload de sincronização inválido." },
+        { status: 400 },
+      );
+    }
+
+    const userId = session.user.id;
+    const lastSyncedAt = parsed.data.last_synced_at;
+    const changes = parsed.data.changes;
     const db = getTursoDb();
 
     await db.transaction(async (tx) => {
@@ -40,6 +85,7 @@ export async function POST(req: Request) {
           .insert(banks)
           .values({
             id: row.id,
+            user_id: userId,
             name: row.name,
             balance_cents: Math.trunc(row.balance_cents),
             updated_at: row.updated_at,
@@ -53,7 +99,10 @@ export async function POST(req: Request) {
               updated_at: sql`excluded.updated_at`,
               deleted_at: sql`excluded.deleted_at`,
             },
-            setWhere: sql`excluded.updated_at > ${banks.updated_at}`,
+            setWhere: and(
+              eq(banks.user_id, userId),
+              sql`excluded.updated_at > ${banks.updated_at}`,
+            ),
           });
       }
 
@@ -62,6 +111,7 @@ export async function POST(req: Request) {
           .insert(envelopes)
           .values({
             id: row.id,
+            user_id: userId,
             name: row.name,
             color: row.color,
             icon: row.icon,
@@ -79,7 +129,10 @@ export async function POST(req: Request) {
               updated_at: sql`excluded.updated_at`,
               deleted_at: sql`excluded.deleted_at`,
             },
-            setWhere: sql`excluded.updated_at > ${envelopes.updated_at}`,
+            setWhere: and(
+              eq(envelopes.user_id, userId),
+              sql`excluded.updated_at > ${envelopes.updated_at}`,
+            ),
           });
       }
 
@@ -88,6 +141,7 @@ export async function POST(req: Request) {
           .insert(thirdParties)
           .values({
             id: row.id,
+            user_id: userId,
             name: row.name,
             updated_at: row.updated_at,
             deleted_at: row.deleted_at ?? null,
@@ -99,7 +153,10 @@ export async function POST(req: Request) {
               updated_at: sql`excluded.updated_at`,
               deleted_at: sql`excluded.deleted_at`,
             },
-            setWhere: sql`excluded.updated_at > ${thirdParties.updated_at}`,
+            setWhere: and(
+              eq(thirdParties.user_id, userId),
+              sql`excluded.updated_at > ${thirdParties.updated_at}`,
+            ),
           });
       }
 
@@ -108,6 +165,7 @@ export async function POST(req: Request) {
           .insert(transactions)
           .values({
             id: row.id,
+            user_id: userId,
             type: row.type,
             amount_cents: Math.trunc(row.amount_cents),
             description: row.description,
@@ -137,7 +195,10 @@ export async function POST(req: Request) {
               updated_at: sql`excluded.updated_at`,
               deleted_at: sql`excluded.deleted_at`,
             },
-            setWhere: sql`excluded.updated_at > ${transactions.updated_at}`,
+            setWhere: and(
+              eq(transactions.user_id, userId),
+              sql`excluded.updated_at > ${transactions.updated_at}`,
+            ),
           });
       }
 
@@ -146,6 +207,7 @@ export async function POST(req: Request) {
           .insert(reconciliations)
           .values({
             id: row.id,
+            user_id: userId,
             date: row.date,
             expected_cents: Math.trunc(row.expected_cents),
             actual_cents: Math.trunc(row.actual_cents),
@@ -167,7 +229,10 @@ export async function POST(req: Request) {
               updated_at: sql`excluded.updated_at`,
               deleted_at: sql`excluded.deleted_at`,
             },
-            setWhere: sql`excluded.updated_at > ${reconciliations.updated_at}`,
+            setWhere: and(
+              eq(reconciliations.user_id, userId),
+              sql`excluded.updated_at > ${reconciliations.updated_at}`,
+            ),
           });
       }
     });
@@ -179,20 +244,46 @@ export async function POST(req: Request) {
       remoteTransactions,
       remoteReconciliations,
     ] = await Promise.all([
-      db.select().from(banks).where(gt(banks.updated_at, lastSyncedAt)),
-      db.select().from(envelopes).where(gt(envelopes.updated_at, lastSyncedAt)),
+      db
+        .select()
+        .from(banks)
+        .where(and(eq(banks.user_id, userId), gt(banks.updated_at, lastSyncedAt))),
+      db
+        .select()
+        .from(envelopes)
+        .where(
+          and(
+            eq(envelopes.user_id, userId),
+            gt(envelopes.updated_at, lastSyncedAt),
+          ),
+        ),
       db
         .select()
         .from(thirdParties)
-        .where(gt(thirdParties.updated_at, lastSyncedAt)),
+        .where(
+          and(
+            eq(thirdParties.user_id, userId),
+            gt(thirdParties.updated_at, lastSyncedAt),
+          ),
+        ),
       db
         .select()
         .from(transactions)
-        .where(gt(transactions.updated_at, lastSyncedAt)),
+        .where(
+          and(
+            eq(transactions.user_id, userId),
+            gt(transactions.updated_at, lastSyncedAt),
+          ),
+        ),
       db
         .select()
         .from(reconciliations)
-        .where(gt(reconciliations.updated_at, lastSyncedAt)),
+        .where(
+          and(
+            eq(reconciliations.user_id, userId),
+            gt(reconciliations.updated_at, lastSyncedAt),
+          ),
+        ),
     ]);
 
     return NextResponse.json({
