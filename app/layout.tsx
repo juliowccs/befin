@@ -25,8 +25,8 @@ export const viewport: Viewport = {
 export const metadata: Metadata = {
   applicationName: "befin",
   title: {
-    default: "befin — Clareza para suas caixinhas",
-    template: "%s — befin",
+    default: "befin - Clareza para suas caixinhas",
+    template: "%s - befin",
   },
   description:
     "App mobile-first de envelope budgeting para dividir dinheiro em caixinhas e conciliar seus bancos.",

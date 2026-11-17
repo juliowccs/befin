@@ -144,6 +144,8 @@ export function Select({
     triggerRef.current?.focus();
   }
 
+  const listboxId = React.useId();
+
   return (
     <div className="relative w-full">
       <button
@@ -151,6 +153,7 @@ export function Select({
         id={id}
         type="button"
         role="combobox"
+        aria-controls={listboxId}
         aria-expanded={open}
         aria-haspopup="listbox"
         aria-label={ariaLabel}

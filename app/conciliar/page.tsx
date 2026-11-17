@@ -222,7 +222,7 @@ export default function ConciliarPage() {
         <CardHeader className="pb-3">
           <div className="flex items-center justify-between gap-2">
             <div>
-              <CardTitle>Saldos Físicos nos Bancos</CardTitle>
+              <CardTitle as="h2">Saldos Físicos nos Bancos</CardTitle>
               <CardDescription>
                 Informe o saldo principal e o rendimento acumulado em cada
                 banco.
@@ -319,7 +319,7 @@ export default function ConciliarPage() {
         <CardHeader className="pb-3">
           <div className="flex items-center gap-2">
             <Scales size={20} weight="duotone" className="text-primary" />
-            <CardTitle>Equação da Verdade</CardTitle>
+            <CardTitle as="h2">Equação da Verdade</CardTitle>
           </div>
           <CardDescription>
             Comparação entre o saldo esperado pelo Befin e o saldo real nos
@@ -598,7 +598,7 @@ export default function ConciliarPage() {
           {/* Manual Audit List */}
           <Card>
             <CardHeader className="pb-3">
-              <CardTitle className="text-lg">
+              <CardTitle as="h2" className="text-lg">
                 Auditoria manual — Últimos lançamentos
               </CardTitle>
               <CardDescription>
@@ -646,7 +646,7 @@ export default function ConciliarPage() {
       {reconciliations.length > 0 && (
         <Card>
           <CardHeader className="pb-3">
-            <CardTitle className="text-lg">
+            <CardTitle as="h2" className="text-lg">
               Histórico de Conciliações
             </CardTitle>
           </CardHeader>

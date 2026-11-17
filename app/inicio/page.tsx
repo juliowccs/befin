@@ -345,7 +345,7 @@ export default function InicioPage() {
                         </span>
                         <div className="min-w-0">
                           <div className="flex items-center gap-1.5">
-                            <h3 className="line-clamp-2 font-display text-base font-bold leading-snug text-primary">
+                            <h3 className="truncate font-display text-base font-bold leading-snug text-primary">
                               {env.name}
                             </h3>
                           </div>
@@ -367,7 +367,7 @@ export default function InicioPage() {
                       </p>
                     </div>
 
-                    <div className="flex items-center gap-2 pt-1">
+                    <div className="mt-auto flex items-center gap-2 pt-1">
                       <Button
                         size="sm"
                         variant="secondary"

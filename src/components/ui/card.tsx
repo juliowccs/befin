@@ -29,11 +29,14 @@ export function CardHeader({
 }
 
 export function CardTitle({
+  as: Comp = "h3",
   className,
   ...props
-}: React.HTMLAttributes<HTMLHeadingElement>) {
+}: React.HTMLAttributes<HTMLHeadingElement> & {
+  as?: "h1" | "h2" | "h3" | "h4" | "h5" | "h6";
+}) {
   return (
-    <h3
+    <Comp
       className={cn(
         "font-display text-lg font-semibold leading-tight tracking-tight text-primary",
         className

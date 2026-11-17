@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { MotionConfig, motion } from "motion/react";
@@ -15,14 +16,25 @@ import {
 } from "@phosphor-icons/react";
 import { BefinMark, BefinWordmark } from "@/components/brand/befin-logo";
 import { PwaProvider } from "@/components/pwa/pwa-provider";
-import {
-  SettingsDialog,
-  type SettingsTab,
-} from "@/components/settings/settings-dialog";
-import {
-  NewTransactionDialog,
-  type NewTransactionPreset,
-} from "@/components/transactions/new-transaction-dialog";
+import type { SettingsTab } from "@/components/settings/settings-dialog";
+import type { NewTransactionPreset } from "@/components/transactions/new-transaction-dialog";
+import { SyncProvider } from "@/hooks/use-sync";
+
+const SettingsDialog = dynamic(
+  () =>
+    import("@/components/settings/settings-dialog").then(
+      (mod) => mod.SettingsDialog,
+    ),
+  { ssr: false },
+);
+
+const NewTransactionDialog = dynamic(
+  () =>
+    import("@/components/transactions/new-transaction-dialog").then(
+      (mod) => mod.NewTransactionDialog,
+    ),
+  { ssr: false },
+);
 import { editorialSpring, fastTransition } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 
@@ -70,7 +82,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [txSessionKey, setTxSessionKey] = React.useState(0);
 
   const [isSettingsOpen, setIsSettingsOpen] = React.useState(false);
-  const [settingsTab, setSettingsTab] = React.useState<SettingsTab>("banks");
+  const [settingsTab] = React.useState<SettingsTab>("banks");
 
   const openNewTransaction = React.useCallback(
     (preset?: NewTransactionPreset) => {
@@ -129,22 +141,20 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [isPublicRoute, isNewTxOpen, isSettingsOpen, openNewTransaction, router]);
 
-  if (isPublicRoute) {
-    return (
-      <MotionConfig reducedMotion="user">
-        <PwaProvider showSplash={false} showInstallPrompt={false} />
-        <div className="min-h-dvh flex flex-col bg-canvas text-primary">
-          {children}
-        </div>
-      </MotionConfig>
-    );
-  }
-
   return (
     <MotionConfig reducedMotion="user">
-      <AppShellContext.Provider value={contextValue}>
-        <PwaProvider showSplash showInstallPrompt />
-        <div className="min-h-dvh flex flex-col bg-canvas text-primary lg:pl-60">
+      <SyncProvider>
+        {isPublicRoute ? (
+          <>
+            <PwaProvider showSplash={false} showInstallPrompt={false} />
+            <div className="min-h-dvh flex flex-col bg-canvas text-primary">
+              {children}
+            </div>
+          </>
+        ) : (
+          <AppShellContext.Provider value={contextValue}>
+            <PwaProvider showSplash showInstallPrompt />
+            <div className="min-h-dvh flex flex-col bg-canvas text-primary lg:pl-60">
         {/* Desktop Editorial Sidebar */}
         <aside
           aria-label="Menu lateral"
@@ -243,6 +253,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <div className="flex items-center gap-2">
               <Link
                 href="/relatorios"
+                aria-label="Relatórios"
                 className={cn(
                   "inline-flex min-h-10 items-center gap-2 rounded-2xl border px-3.5 py-2 text-xs font-semibold shadow-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
                   pathname === "/relatorios"
@@ -250,15 +261,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     : "border-border-subtle bg-surface text-primary hover:bg-surface-lavender",
                 )}
               >
-                <ChartBar size={17} weight="duotone" />
+                <ChartBar size={17} weight="duotone" aria-hidden="true" />
                 <span className="hidden xs:inline sm:inline">Relatórios</span>
               </Link>
               <button
                 type="button"
                 onClick={() => openSettings("banks")}
+                aria-label="Bancos e Terceiros"
                 className="inline-flex min-h-10 items-center gap-2 rounded-2xl border border-border-subtle bg-surface px-3.5 py-2 text-xs font-semibold text-primary shadow-xs transition-colors hover:bg-surface-lavender focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent cursor-pointer"
               >
-                <GearSix size={17} weight="duotone" />
+                <GearSix size={17} weight="duotone" aria-hidden="true" />
                 <span className="hidden xs:inline sm:inline">
                   Bancos &amp; Terceiros
                 </span>
@@ -375,7 +387,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           defaultTab={settingsTab}
         />
         </div>
-      </AppShellContext.Provider>
+          </AppShellContext.Provider>
+        )}
+      </SyncProvider>
     </MotionConfig>
   );
 }

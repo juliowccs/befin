@@ -7,6 +7,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   ArrowCounterClockwise,
+  ArrowsClockwise,
   Bank,
   Check,
   Database,
@@ -31,6 +32,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useBefinData } from "@/hooks/use-befin-data";
+import { useSync } from "@/hooks/use-sync";
 import {
   addBank,
   addThirdParty,
@@ -75,6 +77,12 @@ export function SettingsDialog({
   const router = useRouter();
   const { data: session } = useSession();
   const { banks, thirdParties, snapshot } = useBefinData();
+  const {
+    status: syncStatus,
+    lastSyncedAt,
+    error: syncError,
+    syncNow,
+  } = useSync();
   const [activeTab, setActiveTab] = React.useState<SettingsTab>(defaultTab);
   const [confirmDeleteAccount, setConfirmDeleteAccount] = React.useState(false);
   const [isAccountBusy, setIsAccountBusy] = React.useState(false);
@@ -82,6 +90,23 @@ export function SettingsDialog({
   const [passwordMessage, setPasswordMessage] = React.useState<string | null>(
     null,
   );
+
+  const syncStatusLabel = React.useMemo(() => {
+    if (!session?.user) return "Dados salvos apenas neste dispositivo.";
+    if (syncStatus === "syncing") return "Sincronizando...";
+    if (syncStatus === "offline") return "Offline — salvo neste dispositivo";
+    if (syncStatus === "error") {
+      return syncError || "Erro ao sincronizar com a nuvem.";
+    }
+    if (lastSyncedAt) {
+      const formattedTime = new Intl.DateTimeFormat("pt-BR", {
+        hour: "2-digit",
+        minute: "2-digit",
+      }).format(new Date(lastSyncedAt));
+      return `Sincronizado às ${formattedTime}`;
+    }
+    return "Conta conectada para sincronização na nuvem.";
+  }, [session?.user, syncStatus, syncError, lastSyncedAt]);
 
   // Sync defaultTab when dialog opens
   const [lastDefaultTab, setLastDefaultTab] =
@@ -625,15 +650,31 @@ export function SettingsDialog({
                       ? session.user.email
                       : "Modo Convidado (Local)"}
                   </p>
-                  <p className="text-xs text-text-secondary">
-                    {session?.user
-                      ? "Conta conectada para sincronização na nuvem."
-                      : "Dados salvos apenas neste dispositivo."}
+                  <p
+                    className={`text-xs ${
+                      session?.user && syncStatus === "error"
+                        ? "font-medium text-coral-text"
+                        : "text-text-secondary"
+                    }`}
+                  >
+                    {syncStatusLabel}
                   </p>
                 </div>
               </div>
-              <Badge variant={session?.user ? "sage" : "outline"}>
-                {session?.user ? "Conectado" : "Convidado"}
+              <Badge
+                variant={
+                  session?.user
+                    ? syncStatus === "offline"
+                      ? "outline"
+                      : "sage"
+                    : "outline"
+                }
+              >
+                {session?.user
+                  ? syncStatus === "offline"
+                    ? "Offline"
+                    : "Conectado"
+                  : "Convidado"}
               </Badge>
             </div>
 
@@ -708,6 +749,21 @@ export function SettingsDialog({
                 </form>
 
                 <div className="flex flex-wrap gap-2">
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    disabled={isAccountBusy || syncStatus === "syncing"}
+                    onClick={() => void syncNow()}
+                  >
+                    <ArrowsClockwise
+                      size={15}
+                      weight="bold"
+                      className={syncStatus === "syncing" ? "animate-spin" : undefined}
+                    />
+                    {syncStatus === "syncing"
+                      ? "Sincronizando..."
+                      : "Sincronizar agora"}
+                  </Button>
                   <Button
                     size="sm"
                     variant="outline"

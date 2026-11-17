@@ -19,7 +19,6 @@ import {
   ChartBar,
   Gear,
   House,
-  LockSimple,
   PiggyBank,
   Plus,
   Receipt,
@@ -30,7 +29,6 @@ import {
 } from "@phosphor-icons/react";
 import { BefinMark, BefinWordmark } from "@/components/brand/befin-logo";
 import { IPhone17ProMax } from "@/components/ui/apple-iphone-17-pro";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { useSession } from "@/src/lib/auth-client";
@@ -286,7 +284,7 @@ export default function LandingPage() {
                           <PiggyBank size={15} weight="duotone" />
                         </span>
                         <div className="min-w-0 text-left">
-                          <p className="truncate text-[10px] text-white/65">
+                          <p className="truncate text-[10px] text-white/80">
                             Rendimento Nubank
                           </p>
                           <p className="truncate text-xs font-semibold text-white">

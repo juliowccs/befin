@@ -326,7 +326,7 @@ export default function RelatoriosPage() {
         {/* Chart 1: AreaChart Receitas vs Gastos */}
         <Card className="lg:col-span-2">
           <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-lg">
+            <CardTitle as="h2" className="flex items-center gap-2 text-lg">
               <ChartBar size={18} weight="duotone" className="text-primary" />
               1. Evolução Mensal (Receitas vs Gastos)
             </CardTitle>
@@ -394,7 +394,7 @@ export default function RelatoriosPage() {
         {/* Chart 2: Donut Chart — Onde você mais gastou */}
         <Card>
           <CardHeader>
-            <CardTitle className="text-lg">
+            <CardTitle as="h2" className="text-lg">
               2. Onde você mais gastou
             </CardTitle>
             <CardDescription>
@@ -461,7 +461,7 @@ export default function RelatoriosPage() {
         {/* Chart 3: Horizontal BarChart — Ranking de Caixinhas */}
         <Card>
           <CardHeader>
-            <CardTitle className="text-lg">
+            <CardTitle as="h2" className="text-lg">
               3. Ranking por Caixinha
             </CardTitle>
             <CardDescription>
@@ -516,7 +516,7 @@ export default function RelatoriosPage() {
         {/* Chart 4: Stacked BarChart — Pix/Débito vs Crédito */}
         <Card>
           <CardHeader>
-            <CardTitle className="text-lg">
+            <CardTitle as="h2" className="text-lg">
               4. Pix/Débito vs Crédito por Mês
             </CardTitle>
             <CardDescription>
@@ -571,7 +571,7 @@ export default function RelatoriosPage() {
         {/* Chart 5: Weekday Spending BarChart */}
         <Card>
           <CardHeader>
-            <CardTitle className="text-lg">
+            <CardTitle as="h2" className="text-lg">
               5. Gastos por Dia da Semana
             </CardTitle>
             <CardDescription>
@@ -617,7 +617,7 @@ export default function RelatoriosPage() {
         {/* Chart 6: Cumulative Net Balance LineChart */}
         <Card className="lg:col-span-2">
           <CardHeader>
-            <CardTitle className="text-lg">
+            <CardTitle as="h2" className="text-lg">
               6. Saldo Líquido Acumulado
             </CardTitle>
             <CardDescription>
@@ -668,7 +668,7 @@ export default function RelatoriosPage() {
       <motion.section variants={staggerItem}>
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-lg">
+            <CardTitle as="h2" className="flex items-center gap-2 text-lg">
               <Receipt size={18} weight="duotone" className="text-primary" />
               Top 5 Maiores Gastos do Período
             </CardTitle>
