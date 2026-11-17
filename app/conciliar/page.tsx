@@ -1,7 +1,11 @@
 "use client";
 
+import { BankIcon } from "@/lib/bank-icons";
+
 import * as React from "react";
 import Link from "next/link";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { useForm, useWatch } from "react-hook-form";
 import { AnimatePresence, motion } from "motion/react";
 import {
   ArrowRight,
@@ -37,6 +41,10 @@ import {
 import { calculateReconciliation } from "@/lib/ledger";
 import { formatCents, formatCentsDecimal, parseCentsInput } from "@/lib/money";
 import { editorialSpring, fastTransition } from "@/lib/motion";
+import {
+  type ReconciliationFormValues,
+  reconciliationFormSchema,
+} from "@/lib/schemas/forms";
 
 export default function ConciliarPage() {
   const { openNewTransaction, openSettings } = useAppShell();
@@ -50,17 +58,27 @@ export default function ConciliarPage() {
     snapshot,
   } = useBefinData();
 
-  const [balanceInputs, setBalanceInputs] = React.useState<
-    Record<string, string>
-  >({});
-  const [yieldInputs, setYieldInputs] = React.useState<Record<string, string>>(
-    {}
-  );
-  const [notes, setNotes] = React.useState("");
   const [feedbackBanner, setFeedbackBanner] = React.useState<string | null>(
     null
   );
-  const [isSubmitting, setIsSubmitting] = React.useState(false);
+
+  const {
+    register,
+    control,
+    handleSubmit,
+    setValue,
+    formState: { errors, isSubmitting },
+  } = useForm<ReconciliationFormValues>({
+    resolver: zodResolver(reconciliationFormSchema),
+    defaultValues: {
+      bankBalances: {},
+      yieldInputs: {},
+      notes: "",
+    },
+  });
+
+  const watchedBalanceInputs = useWatch({ control, name: "bankBalances" });
+  const watchedYieldInputs = useWatch({ control, name: "yieldInputs" });
 
   const envelopesById = React.useMemo(
     () => Object.fromEntries(envelopes.map((env) => [env.id, env])),
@@ -73,6 +91,8 @@ export default function ConciliarPage() {
   );
 
   const effectiveBankValues = React.useMemo(() => {
+    const balanceInputs = watchedBalanceInputs ?? {};
+    const yieldInputs = watchedYieldInputs ?? {};
     return banks.map((bank) => {
       const balanceRaw =
         balanceInputs[bank.id] ?? formatCentsDecimal(bank.balance_cents);
@@ -85,7 +105,7 @@ export default function ConciliarPage() {
         yieldCents: Math.max(0, parseCentsInput(yieldRaw)),
       };
     });
-  }, [banks, balanceInputs, yieldInputs]);
+  }, [banks, watchedBalanceInputs, watchedYieldInputs]);
 
   const actualCents = React.useMemo(
     () =>
@@ -121,57 +141,47 @@ export default function ConciliarPage() {
     }
   };
 
-  const handleSaveReconciliation = async () => {
-    setIsSubmitting(true);
+  const handleSaveReconciliation = handleSubmit(async (values) => {
     setFeedbackBanner(null);
-    try {
-      await persistBankBalances();
-      await saveReconciliationInDb({
-        expected_cents: reconciliation.expectedCents,
-        actual_cents: reconciliation.actualCents,
-        yield_cents: reconciliation.yieldCents,
-        discrepancy_cents: reconciliation.discrepancyCents,
-        notes:
-          notes ||
-          (reconciliation.status === "MATCHED"
-            ? "Conciliação batida exata"
-            : reconciliation.status === "SURPLUS"
-              ? "Sobra registrada na conciliação"
-              : "Falta identificada para auditoria manual"),
-      });
-      setNotes("");
-      setFeedbackBanner("Registro de conciliação salvo no histórico.");
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
+    await persistBankBalances();
+    await saveReconciliationInDb({
+      expected_cents: reconciliation.expectedCents,
+      actual_cents: reconciliation.actualCents,
+      yield_cents: reconciliation.yieldCents,
+      discrepancy_cents: reconciliation.discrepancyCents,
+      notes:
+        values.notes ||
+        (reconciliation.status === "MATCHED"
+          ? "Conciliação batida exata"
+          : reconciliation.status === "SURPLUS"
+            ? "Sobra registrada na conciliação"
+            : "Falta identificada para auditoria manual"),
+    });
+    setValue("notes", "");
+    setFeedbackBanner("Registro de conciliação salvo no histórico.");
+  });
 
-  const handleSendSurplusToEmergency = async () => {
+  const handleSendSurplusToEmergency = handleSubmit(async (values) => {
     if (!reconciliation.emergencyEnvelopeId || reconciliation.discrepancyCents <= 0)
       return;
-    setIsSubmitting(true);
     setFeedbackBanner(null);
-    try {
-      await persistBankBalances();
-      await applyYieldSurplusToEmergencyFundInDb({
-        surplusCents: reconciliation.discrepancyCents,
-        emergencyEnvelopeId: reconciliation.emergencyEnvelopeId,
-        expectedCents: reconciliation.expectedCents,
-        actualCents: reconciliation.actualCents,
-        yieldCents: reconciliation.yieldCents,
-        notes,
-      });
-      setYieldInputs({});
-      setNotes("");
-      setFeedbackBanner(
-        `Sobra de ${formatCents(reconciliation.discrepancyCents)} enviada para ${
-          emergencyEnvelope?.name ?? "Reserva de Emergência"
-        }!`
-      );
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
+    await persistBankBalances();
+    await applyYieldSurplusToEmergencyFundInDb({
+      surplusCents: reconciliation.discrepancyCents,
+      emergencyEnvelopeId: reconciliation.emergencyEnvelopeId,
+      expectedCents: reconciliation.expectedCents,
+      actualCents: reconciliation.actualCents,
+      yieldCents: reconciliation.yieldCents,
+      notes: values.notes,
+    });
+    setValue("yieldInputs", {});
+    setValue("notes", "");
+    setFeedbackBanner(
+      `Sobra de ${formatCents(reconciliation.discrepancyCents)} enviada para ${
+        emergencyEnvelope?.name ?? "Reserva de Emergência"
+      }!`
+    );
+  });
 
   if (isLoading) {
     return (
@@ -205,6 +215,8 @@ export default function ConciliarPage() {
         </Button>
       </div>
 
+      <div className="flex flex-col gap-6 lg:grid lg:grid-cols-12 lg:items-start lg:gap-7">
+        <div className="contents lg:col-span-7 lg:flex lg:flex-col lg:gap-6">
       {/* Bank Physical Balance + Yield Inputs */}
       <Card>
         <CardHeader className="pb-3">
@@ -240,7 +252,7 @@ export default function ConciliarPage() {
                 className="flex flex-col gap-3 rounded-2xl border border-border-subtle bg-canvas p-4"
               >
                 <div className="flex items-center gap-2">
-                  <Bank size={18} weight="duotone" className="text-primary" />
+                  <BankIcon name={bank.name} />
                   <h2 className="font-display text-base font-bold text-primary">
                     {bank.name}
                   </h2>
@@ -256,13 +268,18 @@ export default function ConciliarPage() {
                       inputMode="decimal"
                       value={balanceRaw}
                       onChange={(e) =>
-                        setBalanceInputs((prev) => ({
-                          ...prev,
-                          [bank.id]: e.target.value,
-                        }))
+                        setValue(`bankBalances.${bank.id}`, e.target.value, {
+                          shouldValidate: true,
+                        })
                       }
+                      aria-invalid={Boolean(errors.bankBalances?.[bank.id])}
                       className="tabular-nums font-semibold"
                     />
+                    {errors.bankBalances?.[bank.id] && (
+                      <p className="text-xs font-medium text-coral-text">
+                        {errors.bankBalances[bank.id]?.message}
+                      </p>
+                    )}
                   </div>
                   <div className="flex flex-col gap-1.5">
                     <Label htmlFor={`bank-yield-${bank.id}`}>
@@ -274,13 +291,18 @@ export default function ConciliarPage() {
                       placeholder="0,00"
                       value={yieldRaw}
                       onChange={(e) =>
-                        setYieldInputs((prev) => ({
-                          ...prev,
-                          [bank.id]: e.target.value,
-                        }))
+                        setValue(`yieldInputs.${bank.id}`, e.target.value, {
+                          shouldValidate: true,
+                        })
                       }
+                      aria-invalid={Boolean(errors.yieldInputs?.[bank.id])}
                       className="tabular-nums font-semibold"
                     />
+                    {errors.yieldInputs?.[bank.id] && (
+                      <p className="text-xs font-medium text-coral-text">
+                        {errors.yieldInputs[bank.id]?.message}
+                      </p>
+                    )}
                   </div>
                 </div>
               </div>
@@ -289,6 +311,9 @@ export default function ConciliarPage() {
         </CardContent>
       </Card>
 
+        </div>
+
+        <div className="contents lg:col-span-5 lg:sticky lg:top-8 lg:flex lg:flex-col lg:gap-6">
       {/* Truth Equation Breakdown */}
       <Card>
         <CardHeader className="pb-3">
@@ -355,10 +380,7 @@ export default function ConciliarPage() {
             <Card className="border-sage-text/20 bg-sage-bg/70">
           <CardContent className="flex flex-col gap-4 p-5 sm:p-6">
             <div className="flex items-start gap-3">
-              <span
-                className="t-success-check inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-sage-text text-white"
-                data-state="in"
-              >
+              <span className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-sage-text text-white">
                 <svg viewBox="0 0 24 24" fill="none" className="h-6 w-6">
                   <path
                     d="M5 13l4 4L19 7"
@@ -381,12 +403,19 @@ export default function ConciliarPage() {
             </div>
 
             <div className="flex flex-col sm:flex-row gap-2.5">
-              <Input
-                placeholder="Observação opcional (ex: Fechamento do mês)..."
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                className="bg-surface"
-              />
+              <div className="flex-1 flex flex-col gap-1">
+                <Input
+                  placeholder="Observação opcional (ex: Fechamento do mês)..."
+                  aria-invalid={Boolean(errors.notes)}
+                  className="bg-surface"
+                  {...register("notes")}
+                />
+                {errors.notes && (
+                  <p className="text-xs font-medium text-coral-text">
+                    {errors.notes.message}
+                  </p>
+                )}
+              </div>
               <Button
                 variant="sage"
                 disabled={isSubmitting}
@@ -447,7 +476,7 @@ export default function ConciliarPage() {
 
             {emergencyEnvelope ? (
               <div className="flex flex-col gap-3 rounded-2xl bg-surface/90 p-4 border border-sage-text/15">
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                <div className="flex flex-col gap-3">
                   <div className="flex items-center gap-2.5">
                     <ShieldCheck
                       size={20}
@@ -486,13 +515,20 @@ export default function ConciliarPage() {
               </div>
             )}
 
-            <div className="flex flex-col sm:flex-row gap-2">
-              <Input
-                placeholder="Observação opcional..."
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                className="bg-surface"
-              />
+            <div className="flex flex-col gap-2.5">
+              <div className="flex-1 flex flex-col gap-1">
+                <Input
+                  placeholder="Observação opcional..."
+                  aria-invalid={Boolean(errors.notes)}
+                  className="bg-surface"
+                  {...register("notes")}
+                />
+                {errors.notes && (
+                  <p className="text-xs font-medium text-coral-text">
+                    {errors.notes.message}
+                  </p>
+                )}
+              </div>
               <Button
                 variant="outline"
                 disabled={isSubmitting}
@@ -602,6 +638,9 @@ export default function ConciliarPage() {
           </motion.div>
         )}
       </AnimatePresence>
+
+        </div>
+      </div>
 
       {/* Reconciliation History */}
       {reconciliations.length > 0 && (

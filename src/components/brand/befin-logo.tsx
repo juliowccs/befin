@@ -4,17 +4,17 @@ export function BefinWordmark({ className }: { className?: string }) {
   return (
     <span
       className={cn(
-        "inline-flex items-baseline font-display text-2xl font-bold tracking-tight text-primary select-none",
+        "inline-flex items-baseline font-display text-2xl font-bold tracking-normal text-primary select-none",
         className
       )}
       aria-label="befin"
     >
       <span>bef</span>
-      <span className="relative inline-block">
+      <span className="relative inline-block mx-[0.02em]">
         <span aria-hidden="true">ı</span>
         <span
           aria-hidden="true"
-          className="absolute left-1/2 top-[0.06em] h-[0.26em] w-[0.26em] -translate-x-1/2 rounded-full bg-accent ring-2 ring-accent-soft/60"
+          className="absolute inset-x-0 top-[0.2em] mx-auto h-[0.2em] w-[0.2em] rounded-full bg-accent"
         />
       </span>
       <span>n</span>
@@ -31,7 +31,7 @@ export function BefinMark({ className }: { className?: string }) {
         className
       )}
     >
-      <span className="font-display text-lg font-bold leading-none">B</span>
+      <span className="font-display text-xl font-bold leading-none">b</span>
       <svg
         viewBox="0 0 14 14"
         fill="none"

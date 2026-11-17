@@ -1,6 +1,8 @@
 "use client";
 
 import * as React from "react";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { useForm, useWatch } from "react-hook-form";
 import { AnimatePresence, motion } from "motion/react";
 import {
   ArrowsLeftRight,
@@ -33,6 +35,10 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import {
+  type EnvelopeFormValues,
+  envelopeFormSchema,
+} from "@/lib/schemas/forms";
 import { Label } from "@/components/ui/label";
 import { useBefinData } from "@/hooks/use-befin-data";
 import { addEnvelope, deleteEnvelope, updateEnvelope } from "@/lib/db";
@@ -42,7 +48,7 @@ import {
   getEnvelopeColorStyle,
   getEnvelopeIcon,
 } from "@/lib/envelope-styles";
-import type { EnvelopeColor, EnvelopeRecord } from "@/lib/ledger";
+import type { EnvelopeRecord } from "@/lib/ledger";
 import { formatCents } from "@/lib/money";
 import { editorialSpring, staggerContainer, staggerItem } from "@/lib/motion";
 import { cn } from "@/lib/utils";
@@ -75,7 +81,7 @@ export default function CaixinhasPage() {
     return (
       <div className="flex flex-col gap-5">
         <div className="h-36 animate-pulse rounded-3xl bg-surface" />
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
           <div className="h-44 animate-pulse rounded-3xl bg-surface" />
           <div className="h-44 animate-pulse rounded-3xl bg-surface" />
         </div>
@@ -165,7 +171,7 @@ export default function CaixinhasPage() {
           variants={staggerContainer}
           initial="hidden"
           animate="visible"
-          className="grid grid-cols-1 sm:grid-cols-2 gap-4"
+          className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 auto-rows-fr gap-4"
         >
           <AnimatePresence mode="popLayout">
             {envelopes.map((env) => {
@@ -196,7 +202,7 @@ export default function CaixinhasPage() {
                         <IconComp size={24} weight="duotone" />
                       </span>
                       <div className="min-w-0">
-                        <h2 className="line-clamp-2 font-display text-lg font-bold leading-snug text-primary">
+                        <h2 className="truncate font-display text-lg font-bold leading-snug text-primary">
                           {env.name}
                         </h2>
                         <div className="mt-1 flex flex-wrap items-center gap-1.5">
@@ -317,44 +323,47 @@ function EnvelopeForm({
   envelope: EnvelopeRecord | null;
   onClose: () => void;
 }) {
-  const [name, setName] = React.useState(envelope?.name ?? "");
-  const [color, setColor] = React.useState<EnvelopeColor>(
-    envelope?.color ?? "lavender"
-  );
-  const [icon, setIcon] = React.useState(envelope?.icon ?? "PiggyBank");
-  const [isEmergencyFund, setIsEmergencyFund] = React.useState(
-    envelope?.is_emergency_fund ?? false
-  );
-  const [isSaving, setIsSaving] = React.useState(false);
+  const {
+    register,
+    control,
+    handleSubmit,
+    setValue,
+    formState: { errors, isSubmitting },
+  } = useForm<EnvelopeFormValues>({
+    resolver: zodResolver(envelopeFormSchema),
+    defaultValues: {
+      name: envelope?.name ?? "",
+      color: envelope?.color ?? "lavender",
+      icon: envelope?.icon ?? "PiggyBank",
+      isEmergencyFund: envelope?.is_emergency_fund ?? false,
+    },
+  });
 
-  const handleSubmit = async (event: React.FormEvent) => {
-    event.preventDefault();
-    if (!name.trim()) return;
-    setIsSaving(true);
-    try {
-      if (envelope) {
-        await updateEnvelope(envelope.id, {
-          name,
-          color,
-          icon,
-          is_emergency_fund: isEmergencyFund,
-        });
-      } else {
-        await addEnvelope({
-          name,
-          color,
-          icon,
-          is_emergency_fund: isEmergencyFund,
-        });
-      }
-      onClose();
-    } finally {
-      setIsSaving(false);
+  const color = useWatch({ control, name: "color" });
+  const icon = useWatch({ control, name: "icon" });
+  const isEmergencyFund = useWatch({ control, name: "isEmergencyFund" });
+
+  const onSubmit = async (values: EnvelopeFormValues) => {
+    if (envelope) {
+      await updateEnvelope(envelope.id, {
+        name: values.name,
+        color: values.color,
+        icon: values.icon,
+        is_emergency_fund: values.isEmergencyFund,
+      });
+    } else {
+      await addEnvelope({
+        name: values.name,
+        color: values.color,
+        icon: values.icon,
+        is_emergency_fund: values.isEmergencyFund,
+      });
     }
+    onClose();
   };
 
   return (
-    <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+    <form onSubmit={handleSubmit(onSubmit)} noValidate className="flex flex-col gap-4">
       <DialogHeader className="pb-1">
         <div>
           <DialogTitle>
@@ -372,10 +381,15 @@ function EnvelopeForm({
         <Input
           id="env-name"
           placeholder="Ex: Mercado, Lazer, Reserva..."
-          value={name}
-          onChange={(e) => setName(e.target.value)}
+          aria-invalid={Boolean(errors.name)}
           autoFocus
+          {...register("name")}
         />
+        {errors.name && (
+          <p className="text-xs font-medium text-coral-text">
+            {errors.name.message}
+          </p>
+        )}
       </div>
 
       <div className="flex flex-col gap-2">
@@ -387,7 +401,7 @@ function EnvelopeForm({
               <button
                 key={item.id}
                 type="button"
-                onClick={() => setColor(item.id)}
+                onClick={() => setValue("color", item.id)}
                 className={cn(
                   "flex flex-col items-center gap-1 rounded-2xl border p-2 text-[11px] font-semibold transition-all cursor-pointer",
                   active
@@ -418,7 +432,7 @@ function EnvelopeForm({
                 key={opt.id}
                 type="button"
                 title={opt.label}
-                onClick={() => setIcon(opt.id)}
+                onClick={() => setValue("icon", opt.id)}
                 className={cn(
                   "flex flex-col items-center justify-center gap-1 rounded-2xl border p-2 text-[10px] font-semibold transition-all cursor-pointer",
                   active
@@ -435,12 +449,12 @@ function EnvelopeForm({
       </div>
 
       <div
-        onClick={() => setIsEmergencyFund((prev) => !prev)}
+        onClick={() => setValue("isEmergencyFund", !isEmergencyFund)}
         className="flex items-start gap-3 rounded-2xl border border-border-subtle bg-sage-bg/35 p-3.5 cursor-pointer"
       >
         <Checkbox
           checked={isEmergencyFund}
-          onCheckedChange={(checked) => setIsEmergencyFund(checked)}
+          onCheckedChange={(checked) => setValue("isEmergencyFund", checked === true)}
           aria-label="Marcar como Reserva de Emergência"
         />
         <div className="text-xs leading-relaxed">
@@ -458,8 +472,8 @@ function EnvelopeForm({
         <Button type="button" variant="ghost" onClick={onClose}>
           Cancelar
         </Button>
-        <Button type="submit" disabled={isSaving || !name.trim()}>
-          {isSaving
+        <Button type="submit" disabled={isSubmitting}>
+          {isSubmitting
             ? "Salvando..."
             : envelope
               ? "Salvar alterações"

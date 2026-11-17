@@ -34,6 +34,18 @@ export function formatCentsDecimal(cents: number): string {
 }
 
 /**
+ * Bank/ATM-style currency input mask: extracts digits and formats them as PT-BR decimal
+ * (`""` -> `""`, `"1"` -> `"0,01"`, `"12"` -> `"0,12"`, `"123"` -> `"1,23"`).
+ */
+export function maskCurrencyInput(raw: string): string {
+  const digits = raw.replace(/\D/g, "");
+  if (!digits) return "";
+  const cents = parseInt(digits, 10);
+  if (!Number.isFinite(cents) || cents === 0) return "";
+  return formatCentsDecimal(cents);
+}
+
+/**
  * Parses a PT-BR monetary string (e.g. `"1.234,56"`, `"R$ 2.500,00"`, `"0,99"`, `"100"`)
  * or numeric input into integer cents.
  */

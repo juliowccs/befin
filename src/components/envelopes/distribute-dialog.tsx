@@ -1,6 +1,8 @@
 "use client";
 
 import * as React from "react";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { useForm, useWatch } from "react-hook-form";
 import { CurrencyDollar, Divide, Percent } from "@phosphor-icons/react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -22,6 +24,10 @@ import {
   formatCents,
   parseCentsInput,
 } from "@/lib/money";
+import {
+  type DistributeFormValues,
+  distributeFormSchema,
+} from "@/lib/schemas/forms";
 
 interface DistributeDialogProps {
   open: boolean;
@@ -64,14 +70,29 @@ function DistributeForm({
   envelopeBalances: Record<string, number>;
   onClose: () => void;
 }) {
-  const [mode, setMode] = React.useState<"FIXED" | "PERCENTAGE">("FIXED");
-  const [rawValues, setRawValues] = React.useState<Record<string, string>>({});
-  const [errorMessage, setErrorMessage] = React.useState<string | null>(null);
-  const [isSaving, setIsSaving] = React.useState(false);
+  const [serverError, setServerError] = React.useState<string | null>(null);
+
+  const {
+    register,
+    control,
+    handleSubmit,
+    setValue,
+    formState: { isSubmitting },
+  } = useForm<DistributeFormValues>({
+    resolver: zodResolver(distributeFormSchema),
+    defaultValues: {
+      mode: "FIXED",
+      allocations: {},
+    },
+  });
+
+  const mode = useWatch({ control, name: "mode" });
+  const watchedAllocations = useWatch({ control, name: "allocations" });
 
   const safeFreeBalance = Math.max(0, freeBalanceCents);
 
   const computedPreview = React.useMemo(() => {
+    const rawValues = watchedAllocations ?? {};
     if (mode === "FIXED") {
       const centsPerEnv = envelopes.map((env) =>
         Math.max(0, parseCentsInput(rawValues[env.id] ?? ""))
@@ -111,10 +132,10 @@ function DistributeForm({
       totalPercentage,
       exceeds: false,
     };
-  }, [envelopes, mode, rawValues, safeFreeBalance]);
+  }, [envelopes, mode, watchedAllocations, safeFreeBalance]);
 
   const handleEqualSplit = () => {
-    setErrorMessage(null);
+    setServerError(null);
     if (envelopes.length === 0) return;
 
     if (mode === "PERCENTAGE") {
@@ -124,7 +145,7 @@ function DistributeForm({
       envelopes.forEach((env, idx) => {
         next[env.id] = String(base + (idx === 0 ? rem : 0));
       });
-      setRawValues(next);
+      setValue("allocations", next);
     } else {
       const base = Math.floor(safeFreeBalance / envelopes.length);
       const rem = safeFreeBalance - base * envelopes.length;
@@ -133,42 +154,42 @@ function DistributeForm({
         const val = base + (idx === 0 ? rem : 0);
         next[env.id] = (val / 100).toFixed(2).replace(".", ",");
       });
-      setRawValues(next);
+      setValue("allocations", next);
     }
   };
 
-  const handleSubmit = async (event: React.FormEvent) => {
-    event.preventDefault();
-    setErrorMessage(null);
+  const onSubmit = async (values: DistributeFormValues) => {
+    setServerError(null);
 
     if (safeFreeBalance <= 0) {
-      setErrorMessage("Não há Saldo Livre disponível para distribuir.");
+      setServerError("Não há Saldo Livre disponível para distribuir.");
       return;
     }
     if (computedPreview.exceeds) {
-      setErrorMessage(
-        mode === "PERCENTAGE"
+      setServerError(
+        values.mode === "PERCENTAGE"
           ? "A soma dos percentuais não pode passar de 100%."
           : "O total distribuído excede o Saldo Livre."
       );
       return;
     }
     if (computedPreview.totalAssigned <= 0) {
-      setErrorMessage("Informe pelo menos um valor para distribuir.");
+      setServerError("Informe pelo menos um valor para distribuir.");
       return;
     }
 
-    setIsSaving(true);
     try {
       const allocations = envelopes
         .map((env, idx) => {
-          if (mode === "FIXED") {
+          if (values.mode === "FIXED") {
             return {
               envelopeId: env.id,
               value: computedPreview.centsPerEnv[idx],
             };
           }
-          const cleaned = (rawValues[env.id] ?? "").replace(",", ".").trim();
+          const cleaned = (values.allocations[env.id] ?? "")
+            .replace(",", ".")
+            .trim();
           const parsed = cleaned ? Number(cleaned) : 0;
           return {
             envelopeId: env.id,
@@ -183,22 +204,20 @@ function DistributeForm({
 
       await distributeFreeBalanceInDb({
         freeBalanceCents: safeFreeBalance,
-        mode,
+        mode: values.mode,
         allocations,
         envelopeNames,
       });
       onClose();
     } catch (err) {
-      setErrorMessage(
+      setServerError(
         err instanceof Error ? err.message : "Erro ao distribuir Saldo Livre."
       );
-    } finally {
-      setIsSaving(false);
     }
   };
 
   return (
-    <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+    <form onSubmit={handleSubmit(onSubmit)} noValidate className="flex flex-col gap-4">
       <DialogHeader className="pb-1">
         <div>
           <DialogTitle>Distribuir Saldo Livre</DialogTitle>
@@ -216,9 +235,9 @@ function DistributeForm({
         <Tabs
           value={mode}
           onValueChange={(next) => {
-            setMode(next as "FIXED" | "PERCENTAGE");
-            setRawValues({});
-            setErrorMessage(null);
+            setValue("mode", next as "FIXED" | "PERCENTAGE");
+            setValue("allocations", {});
+            setServerError(null);
           }}
           className="flex-1 min-w-52"
         >
@@ -288,15 +307,9 @@ function DistributeForm({
                   <Input
                     inputMode="decimal"
                     placeholder={mode === "FIXED" ? "0,00" : "0"}
-                    value={rawValues[env.id] ?? ""}
-                    onChange={(e) =>
-                      setRawValues((prev) => ({
-                        ...prev,
-                        [env.id]: e.target.value,
-                      }))
-                    }
                     className="min-h-10 h-10 pr-8 text-right tabular-nums font-semibold"
                     aria-label={`${env.name} em ${mode === "FIXED" ? "reais" : "porcentagem"}`}
+                    {...register(`allocations.${env.id}`)}
                   />
                   <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-text-secondary">
                     {mode === "FIXED" ? "R$" : "%"}
@@ -331,9 +344,12 @@ function DistributeForm({
         </span>
       </div>
 
-      {errorMessage && (
-        <p className="rounded-2xl bg-coral-bg px-3.5 py-2.5 text-xs font-semibold text-coral-text">
-          {errorMessage}
+      {serverError && (
+        <p
+          role="alert"
+          className="rounded-2xl bg-coral-bg px-3.5 py-2.5 text-xs font-semibold text-coral-text"
+        >
+          {serverError}
         </p>
       )}
 
@@ -344,12 +360,12 @@ function DistributeForm({
         <Button
           type="submit"
           disabled={
-            isSaving ||
+            isSubmitting ||
             computedPreview.exceeds ||
             computedPreview.totalAssigned <= 0
           }
         >
-          {isSaving ? "Distribuindo..." : "Confirmar distribuição"}
+          {isSubmitting ? "Distribuindo..." : "Confirmar distribuição"}
         </Button>
       </DialogFooter>
     </form>

@@ -23,7 +23,10 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Select } from "@/components/ui/select";
+import { Select, type SelectOptionItem } from "@/components/ui/select";
+import { getEnvelopeColorStyle, getEnvelopeIcon } from "@/lib/envelope-styles";
+import { Wallet } from "@phosphor-icons/react";
+import { cn } from "@/lib/utils";
 import { useBefinData } from "@/hooks/use-befin-data";
 import { deleteTransaction, settleTransactionsInDb } from "@/lib/db";
 import type {
@@ -412,15 +415,38 @@ function ExtratoContent() {
               aria-label="Filtrar por caixinha"
               value={envelopeFilter}
               onChange={(e) => setEnvelopeFilter(e.target.value)}
-            >
-              <option value="ALL">Todas as caixinhas</option>
-              <option value="__FREE__">Saldo Livre</option>
-              {envelopes.map((env) => (
-                <option key={env.id} value={env.id}>
-                  {env.name}
-                </option>
-              ))}
-            </Select>
+              options={[
+                { value: "ALL", label: "Todas as caixinhas" },
+                {
+                  value: "__FREE__",
+                  label: "Saldo Livre",
+                  icon: (
+                    <span className="inline-flex h-6 w-6 items-center justify-center rounded-lg bg-surface-lavender text-primary">
+                      <Wallet size={14} weight="duotone" />
+                    </span>
+                  ),
+                },
+                ...envelopes.map((env): SelectOptionItem => {
+                  const style = getEnvelopeColorStyle(env.color);
+                  const IconComp = getEnvelopeIcon(env.icon);
+                  return {
+                    value: env.id,
+                    label: env.name,
+                    icon: (
+                      <span
+                        className={cn(
+                          "inline-flex h-6 w-6 items-center justify-center rounded-lg",
+                          style.bgClass,
+                          style.textClass
+                        )}
+                      >
+                        <IconComp size={14} weight="duotone" />
+                      </span>
+                    ),
+                  };
+                }),
+              ]}
+            />
           </div>
 
           {thirdParties.length > 0 && (

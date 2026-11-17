@@ -1,14 +1,21 @@
 "use client";
 
+import { BankIcon } from "@/lib/bank-icons";
+
 import * as React from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   ArrowCounterClockwise,
   Bank,
   Check,
   Database,
+  DownloadSimple,
   PencilSimple,
   Plus,
+  SignOut,
   Trash,
+  UserCircle,
   Users,
 } from "@phosphor-icons/react";
 import { Badge } from "@/components/ui/badge";
@@ -28,13 +35,27 @@ import {
   addBank,
   addThirdParty,
   clearAllLocalData,
+  db,
   deleteBank,
   deleteThirdParty,
   resetDemoData,
   updateBank,
   updateThirdParty,
 } from "@/lib/db";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { useForm } from "react-hook-form";
 import { formatCents, formatCentsDecimal, parseCentsInput } from "@/lib/money";
+import {
+  type SetPasswordValues,
+  setPasswordSchema,
+} from "@/src/lib/schemas/auth";
+import {
+  type BankFormValues,
+  bankFormSchema,
+  type QuickThirdPartyValues,
+  quickThirdPartySchema,
+} from "@/src/lib/schemas/forms";
+import { authClient, useSession } from "@/src/lib/auth-client";
 
 export type SettingsTab = "banks" | "third_parties" | "data";
 
@@ -42,15 +63,25 @@ interface SettingsDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   defaultTab?: SettingsTab;
+  embedded?: boolean;
 }
 
 export function SettingsDialog({
   open,
   onOpenChange,
   defaultTab = "banks",
+  embedded = false,
 }: SettingsDialogProps) {
+  const router = useRouter();
+  const { data: session } = useSession();
   const { banks, thirdParties, snapshot } = useBefinData();
   const [activeTab, setActiveTab] = React.useState<SettingsTab>(defaultTab);
+  const [confirmDeleteAccount, setConfirmDeleteAccount] = React.useState(false);
+  const [isAccountBusy, setIsAccountBusy] = React.useState(false);
+  const [accountError, setAccountError] = React.useState<string | null>(null);
+  const [passwordMessage, setPasswordMessage] = React.useState<string | null>(
+    null,
+  );
 
   // Sync defaultTab when dialog opens
   const [lastDefaultTab, setLastDefaultTab] =
@@ -60,113 +91,261 @@ export function SettingsDialog({
     setActiveTab(defaultTab);
   }
 
-  // Banks state
-  const [newBankName, setNewBankName] = React.useState("");
-  const [newBankBalance, setNewBankBalance] = React.useState("");
+  // Banks state & forms
   const [editingBankId, setEditingBankId] = React.useState<string | null>(null);
-  const [editBankName, setEditBankName] = React.useState("");
-  const [editBankBalance, setEditBankBalance] = React.useState("");
+  const addBankForm = useForm<BankFormValues>({
+    resolver: zodResolver(bankFormSchema),
+    defaultValues: { name: "", balance: "" },
+  });
+  const editBankForm = useForm<BankFormValues>({
+    resolver: zodResolver(bankFormSchema),
+    defaultValues: { name: "", balance: "" },
+  });
 
-  // Third parties state
-  const [newPersonName, setNewPersonName] = React.useState("");
+  // Third parties state & forms
   const [editingPersonId, setEditingPersonId] = React.useState<string | null>(
     null
   );
-  const [editPersonName, setEditPersonName] = React.useState("");
+  const addPersonForm = useForm<QuickThirdPartyValues>({
+    resolver: zodResolver(quickThirdPartySchema),
+    defaultValues: { name: "" },
+  });
+  const editPersonForm = useForm<QuickThirdPartyValues>({
+    resolver: zodResolver(quickThirdPartySchema),
+    defaultValues: { name: "" },
+  });
+
+  // Password form
+  const passwordForm = useForm<SetPasswordValues>({
+    resolver: zodResolver(setPasswordSchema),
+    defaultValues: { newPassword: "" },
+  });
 
   const [confirmClear, setConfirmClear] = React.useState(false);
 
-  const handleAddBank = async (event: React.FormEvent) => {
-    event.preventDefault();
-    if (!newBankName.trim()) return;
+  const handleAddBank = async (values: BankFormValues) => {
     await addBank({
-      name: newBankName,
-      balance_cents: parseCentsInput(newBankBalance),
+      name: values.name,
+      balance_cents: parseCentsInput(values.balance),
     });
-    setNewBankName("");
-    setNewBankBalance("");
+    addBankForm.reset();
   };
 
-  const handleSaveBankEdit = async (id: string) => {
-    if (!editBankName.trim()) return;
+  const handleSaveBankEdit = async (id: string, values: BankFormValues) => {
     await updateBank(id, {
-      name: editBankName,
-      balance_cents: parseCentsInput(editBankBalance),
+      name: values.name,
+      balance_cents: parseCentsInput(values.balance),
     });
     setEditingBankId(null);
   };
 
-  const handleAddPerson = async (event: React.FormEvent) => {
-    event.preventDefault();
-    if (!newPersonName.trim()) return;
-    await addThirdParty(newPersonName);
-    setNewPersonName("");
+  const handleAddPerson = async (values: QuickThirdPartyValues) => {
+    await addThirdParty(values.name);
+    addPersonForm.reset();
   };
 
-  const handleSavePersonEdit = async (id: string) => {
-    if (!editPersonName.trim()) return;
-    await updateThirdParty(id, editPersonName);
+  const handleSavePersonEdit = async (
+    id: string,
+    values: QuickThirdPartyValues
+  ) => {
+    await updateThirdParty(id, values.name);
     setEditingPersonId(null);
   };
 
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogHeader>
-        <div>
-          <DialogTitle>Bancos &amp; Terceiros</DialogTitle>
-          <DialogDescription>
-            Gerencie seus bancos físicos, pessoas de compras compartilhadas e
-            dados locais.
-          </DialogDescription>
-        </div>
-        <DialogCloseButton onClick={() => onOpenChange(false)} />
-      </DialogHeader>
+  const handleExportJson = async () => {
+    setAccountError(null);
+    setIsAccountBusy(true);
+    try {
+      const [
+        localBanks,
+        localEnvelopes,
+        localThirdParties,
+        localTransactions,
+        localReconciliations,
+      ] = await Promise.all([
+        db.banks.toArray(),
+        db.envelopes.toArray(),
+        db.third_parties.toArray(),
+        db.transactions.toArray(),
+        db.reconciliations.toArray(),
+      ]);
 
-      <Tabs
-        value={activeTab}
-        onValueChange={(value) => setActiveTab(value as SettingsTab)}
-      >
-        <TabsList>
-          <TabsTrigger value="banks">
-            <Bank size={15} weight="duotone" />
+      let cloudData: unknown = null;
+      if (session?.user) {
+        const res = await fetch("/api/account");
+        if (res.ok) {
+          cloudData = await res.json();
+        }
+      }
+
+      const payload = {
+        exported_at: new Date().toISOString(),
+        mode: session?.user ? "authenticated" : "guest_local",
+        profile: session?.user
+          ? {
+              id: session.user.id,
+              email: session.user.email,
+              name: session.user.name,
+            }
+          : null,
+        local_data: {
+          banks: localBanks,
+          envelopes: localEnvelopes,
+          third_parties: localThirdParties,
+          transactions: localTransactions,
+          reconciliations: localReconciliations,
+        },
+        cloud_data: cloudData,
+      };
+
+      const blob = new Blob([JSON.stringify(payload, null, 2)], {
+        type: "application/json;charset=utf-8",
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "befin-dados-lgpd.json";
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      setAccountError("Não foi possível exportar seus dados agora.");
+    } finally {
+      setIsAccountBusy(false);
+    }
+  };
+
+  const handleDeleteAccount = async () => {
+    setAccountError(null);
+    setIsAccountBusy(true);
+    try {
+      const res = await fetch("/api/account", { method: "DELETE" });
+      if (!res.ok) {
+        setAccountError("Não foi possível excluir sua conta no servidor.");
+        return;
+      }
+      await clearAllLocalData();
+      await authClient.signOut();
+      setConfirmDeleteAccount(false);
+      onOpenChange(false);
+      router.push("/");
+      router.refresh();
+    } catch {
+      setAccountError("Erro ao excluir conta. Tente novamente.");
+    } finally {
+      setIsAccountBusy(false);
+    }
+  };
+
+  const tabsBody = (
+    <Tabs
+      value={activeTab}
+      onValueChange={(value) => setActiveTab(value as SettingsTab)}
+      className={
+        embedded
+          ? "md:grid md:grid-cols-[230px_1fr] md:items-start md:gap-8"
+          : undefined
+      }
+    >
+      {/* Mobile tabs */}
+      <TabsList className={embedded ? "md:hidden" : undefined}>
+        <TabsTrigger value="banks">
+          <Bank size={15} weight="duotone" />
+          Bancos
+        </TabsTrigger>
+        <TabsTrigger value="third_parties">
+          <Users size={15} weight="duotone" />
+          Terceiros
+        </TabsTrigger>
+        <TabsTrigger value="data">
+          <Database size={15} weight="duotone" />
+          Dados
+        </TabsTrigger>
+      </TabsList>
+
+      {/* Desktop sidebar */}
+      {embedded && (
+        <aside className="hidden md:flex md:flex-col md:gap-1.5 md:sticky md:top-6 rounded-2xl border border-border-subtle bg-surface p-2">
+          <button
+            type="button"
+            onClick={() => setActiveTab("banks")}
+            className={`flex items-center gap-2.5 rounded-xl px-3.5 py-2.5 text-left text-sm font-semibold transition-colors cursor-pointer ${
+              activeTab === "banks"
+                ? "bg-surface-lavender text-primary"
+                : "text-text-secondary hover:bg-canvas hover:text-primary"
+            }`}
+          >
+            <Bank size={17} weight="duotone" />
             Bancos
-          </TabsTrigger>
-          <TabsTrigger value="third_parties">
-            <Users size={15} weight="duotone" />
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab("third_parties")}
+            className={`flex items-center gap-2.5 rounded-xl px-3.5 py-2.5 text-left text-sm font-semibold transition-colors cursor-pointer ${
+              activeTab === "third_parties"
+                ? "bg-surface-lavender text-primary"
+                : "text-text-secondary hover:bg-canvas hover:text-primary"
+            }`}
+          >
+            <Users size={17} weight="duotone" />
             Terceiros
-          </TabsTrigger>
-          <TabsTrigger value="data">
-            <Database size={15} weight="duotone" />
-            Dados
-          </TabsTrigger>
-        </TabsList>
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab("data")}
+            className={`flex items-center gap-2.5 rounded-xl px-3.5 py-2.5 text-left text-sm font-semibold transition-colors cursor-pointer ${
+              activeTab === "data"
+                ? "bg-surface-lavender text-primary"
+                : "text-text-secondary hover:bg-canvas hover:text-primary"
+            }`}
+          >
+            <Database size={17} weight="duotone" />
+            Dados &amp; Conta
+          </button>
+        </aside>
+      )}
+
+      <div className={embedded ? "min-w-0" : undefined}>
 
         <TabsContent value="banks" className="mt-2 flex flex-col gap-4">
           <form
-            onSubmit={handleAddBank}
+            onSubmit={addBankForm.handleSubmit(handleAddBank)}
+            noValidate
             className="flex flex-col gap-2.5 rounded-2xl bg-canvas p-3.5 border border-border-subtle"
           >
             <Label>Adicionar banco</Label>
             <div className="grid grid-cols-1 sm:grid-cols-5 gap-2">
-              <Input
-                placeholder="Ex: Inter, Itaú, Nubank..."
-                value={newBankName}
-                onChange={(e) => setNewBankName(e.target.value)}
-                className="sm:col-span-3"
-              />
-              <Input
-                placeholder="Saldo R$"
-                inputMode="decimal"
-                value={newBankBalance}
-                onChange={(e) => setNewBankBalance(e.target.value)}
-                className="sm:col-span-2 tabular-nums"
-              />
+              <div className="sm:col-span-3 flex flex-col gap-1">
+                <Input
+                  placeholder="Ex: Inter, Itaú, Nubank..."
+                  aria-invalid={Boolean(addBankForm.formState.errors.name)}
+                  {...addBankForm.register("name")}
+                />
+                {addBankForm.formState.errors.name && (
+                  <p className="text-xs font-medium text-coral-text">
+                    {addBankForm.formState.errors.name.message}
+                  </p>
+                )}
+              </div>
+              <div className="sm:col-span-2 flex flex-col gap-1">
+                <Input
+                  placeholder="Saldo R$"
+                  inputMode="decimal"
+                  aria-invalid={Boolean(addBankForm.formState.errors.balance)}
+                  className="tabular-nums"
+                  {...addBankForm.register("balance")}
+                />
+                {addBankForm.formState.errors.balance && (
+                  <p className="text-xs font-medium text-coral-text">
+                    {addBankForm.formState.errors.balance.message}
+                  </p>
+                )}
+              </div>
             </div>
             <Button
               type="submit"
               size="sm"
               className="self-end"
-              disabled={!newBankName.trim()}
+              disabled={addBankForm.formState.isSubmitting}
             >
               <Plus size={14} weight="bold" />
               Cadastrar banco
@@ -187,23 +366,48 @@ export function SettingsDialog({
                     className="flex flex-col gap-2 rounded-2xl border border-border-subtle bg-surface p-3.5"
                   >
                     {isEditing ? (
-                      <div className="flex flex-col gap-2">
+                      <form
+                        onSubmit={editBankForm.handleSubmit((values) =>
+                          handleSaveBankEdit(bank.id, values)
+                        )}
+                        noValidate
+                        className="flex flex-col gap-2"
+                      >
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                          <Input
-                            value={editBankName}
-                            onChange={(e) => setEditBankName(e.target.value)}
-                            aria-label="Nome do banco"
-                          />
-                          <Input
-                            inputMode="decimal"
-                            value={editBankBalance}
-                            onChange={(e) => setEditBankBalance(e.target.value)}
-                            className="tabular-nums"
-                            aria-label="Saldo atual do banco"
-                          />
+                          <div className="flex flex-col gap-1">
+                            <Input
+                              aria-label="Nome do banco"
+                              aria-invalid={Boolean(
+                                editBankForm.formState.errors.name
+                              )}
+                              {...editBankForm.register("name")}
+                            />
+                            {editBankForm.formState.errors.name && (
+                              <p className="text-xs font-medium text-coral-text">
+                                {editBankForm.formState.errors.name.message}
+                              </p>
+                            )}
+                          </div>
+                          <div className="flex flex-col gap-1">
+                            <Input
+                              inputMode="decimal"
+                              className="tabular-nums"
+                              aria-label="Saldo atual do banco"
+                              aria-invalid={Boolean(
+                                editBankForm.formState.errors.balance
+                              )}
+                              {...editBankForm.register("balance")}
+                            />
+                            {editBankForm.formState.errors.balance && (
+                              <p className="text-xs font-medium text-coral-text">
+                                {editBankForm.formState.errors.balance.message}
+                              </p>
+                            )}
+                          </div>
                         </div>
                         <div className="flex justify-end gap-2">
                           <Button
+                            type="button"
                             size="sm"
                             variant="ghost"
                             onClick={() => setEditingBankId(null)}
@@ -211,23 +415,27 @@ export function SettingsDialog({
                             Cancelar
                           </Button>
                           <Button
+                            type="submit"
                             size="sm"
-                            onClick={() => handleSaveBankEdit(bank.id)}
+                            disabled={editBankForm.formState.isSubmitting}
                           >
                             <Check size={14} weight="bold" />
                             Salvar
                           </Button>
                         </div>
-                      </div>
+                      </form>
                     ) : (
                       <div className="flex items-center justify-between gap-3">
-                        <div className="min-w-0">
-                          <p className="truncate text-sm font-semibold text-primary">
-                            {bank.name}
-                          </p>
-                          <p className="text-xs text-text-secondary tabular-nums">
-                            Saldo salvo: {formatCents(bank.balance_cents)}
-                          </p>
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <BankIcon name={bank.name} />
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-semibold text-primary">
+                              {bank.name}
+                            </p>
+                            <p className="text-xs text-text-secondary tabular-nums">
+                              Saldo salvo: {formatCents(bank.balance_cents)}
+                            </p>
+                          </div>
                         </div>
                         <div className="flex items-center gap-1">
                           <Button
@@ -236,10 +444,10 @@ export function SettingsDialog({
                             aria-label={`Editar ${bank.name}`}
                             onClick={() => {
                               setEditingBankId(bank.id);
-                              setEditBankName(bank.name);
-                              setEditBankBalance(
-                                formatCentsDecimal(bank.balance_cents)
-                              );
+                              editBankForm.reset({
+                                name: bank.name,
+                                balance: formatCentsDecimal(bank.balance_cents),
+                              });
                             }}
                           >
                             <PencilSimple size={16} />
@@ -268,7 +476,8 @@ export function SettingsDialog({
           className="mt-2 flex flex-col gap-4"
         >
           <form
-            onSubmit={handleAddPerson}
+            onSubmit={addPersonForm.handleSubmit(handleAddPerson)}
+            noValidate
             className="flex flex-col gap-2.5 rounded-2xl bg-canvas p-3.5 border border-border-subtle"
           >
             <Label htmlFor="new-third-party">Cadastrar pessoa</Label>
@@ -276,14 +485,22 @@ export function SettingsDialog({
               <Input
                 id="new-third-party"
                 placeholder="Nome da pessoa..."
-                value={newPersonName}
-                onChange={(e) => setNewPersonName(e.target.value)}
+                aria-invalid={Boolean(addPersonForm.formState.errors.name)}
+                {...addPersonForm.register("name")}
               />
-              <Button type="submit" disabled={!newPersonName.trim()}>
+              <Button
+                type="submit"
+                disabled={addPersonForm.formState.isSubmitting}
+              >
                 <Plus size={16} weight="bold" />
                 Adicionar
               </Button>
             </div>
+            {addPersonForm.formState.errors.name && (
+              <p className="text-xs font-medium text-coral-text">
+                {addPersonForm.formState.errors.name.message}
+              </p>
+            )}
           </form>
 
           <div className="flex flex-col gap-2">
@@ -303,26 +520,44 @@ export function SettingsDialog({
                     className="flex items-center justify-between gap-3 rounded-2xl border border-border-subtle bg-surface p-3.5"
                   >
                     {isEditing ? (
-                      <div className="flex flex-1 items-center gap-2">
-                        <Input
-                          value={editPersonName}
-                          onChange={(e) => setEditPersonName(e.target.value)}
-                          className="min-h-9 h-9"
-                        />
-                        <Button
-                          size="sm"
-                          onClick={() => handleSavePersonEdit(person.id)}
-                        >
-                          <Check size={14} weight="bold" />
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => setEditingPersonId(null)}
-                        >
-                          Cancelar
-                        </Button>
-                      </div>
+                      <form
+                        onSubmit={editPersonForm.handleSubmit((values) =>
+                          handleSavePersonEdit(person.id, values)
+                        )}
+                        noValidate
+                        className="flex flex-1 flex-col gap-1"
+                      >
+                        <div className="flex items-center gap-2">
+                          <Input
+                            aria-label="Nome da pessoa"
+                            aria-invalid={Boolean(
+                              editPersonForm.formState.errors.name
+                            )}
+                            className="min-h-9 h-9"
+                            {...editPersonForm.register("name")}
+                          />
+                          <Button
+                            type="submit"
+                            size="sm"
+                            disabled={editPersonForm.formState.isSubmitting}
+                          >
+                            <Check size={14} weight="bold" />
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => setEditingPersonId(null)}
+                          >
+                            Cancelar
+                          </Button>
+                        </div>
+                        {editPersonForm.formState.errors.name && (
+                          <p className="text-xs font-medium text-coral-text">
+                            {editPersonForm.formState.errors.name.message}
+                          </p>
+                        )}
+                      </form>
                     ) : (
                       <>
                         <div className="flex items-center gap-2.5 min-w-0">
@@ -350,7 +585,7 @@ export function SettingsDialog({
                             aria-label={`Renomear ${person.name}`}
                             onClick={() => {
                               setEditingPersonId(person.id);
-                              setEditPersonName(person.name);
+                              editPersonForm.reset({ name: person.name });
                             }}
                           >
                             <PencilSimple size={16} />
@@ -375,16 +610,174 @@ export function SettingsDialog({
         </TabsContent>
 
         <TabsContent value="data" className="mt-2 flex flex-col gap-3">
+          {/* Account & LGPD Section */}
+          <div className="flex flex-col gap-3 rounded-2xl border border-border-subtle bg-surface p-4">
+            <div className="flex items-start justify-between gap-2">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <UserCircle
+                  size={22}
+                  weight="duotone"
+                  className="shrink-0 text-primary"
+                />
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-primary truncate">
+                    {session?.user
+                      ? session.user.email
+                      : "Modo Convidado (Local)"}
+                  </p>
+                  <p className="text-xs text-text-secondary">
+                    {session?.user
+                      ? "Conta conectada para sincronização na nuvem."
+                      : "Dados salvos apenas neste dispositivo."}
+                  </p>
+                </div>
+              </div>
+              <Badge variant={session?.user ? "sage" : "outline"}>
+                {session?.user ? "Conectado" : "Convidado"}
+              </Badge>
+            </div>
+
+            {session?.user ? (
+              <div className="flex flex-col gap-3">
+                <form
+                  onSubmit={passwordForm.handleSubmit(async (values) => {
+                    setAccountError(null);
+                    setPasswordMessage(null);
+                    setIsAccountBusy(true);
+                    try {
+                      const res = await fetch("/api/account/password", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                          newPassword: values.newPassword,
+                        }),
+                      });
+                      const data = (await res.json()) as { error?: string };
+                      if (!res.ok) {
+                        setAccountError(
+                          data.error ?? "Não foi possível definir a senha.",
+                        );
+                        return;
+                      }
+                      passwordForm.reset();
+                      setPasswordMessage(
+                        "Senha definida! Agora você também pode entrar com e-mail e senha.",
+                      );
+                    } catch {
+                      setAccountError("Erro ao salvar senha. Tente novamente.");
+                    } finally {
+                      setIsAccountBusy(false);
+                    }
+                  })}
+                  noValidate
+                  className="flex flex-col gap-2 rounded-2xl border border-border-subtle bg-canvas p-3"
+                >
+                  <Label htmlFor="settings-new-password">
+                    Definir senha de acesso (para contas Google)
+                  </Label>
+                  <div className="flex gap-2">
+                    <Input
+                      id="settings-new-password"
+                      type="password"
+                      placeholder="Mínimo 8 caracteres"
+                      aria-invalid={Boolean(
+                        passwordForm.formState.errors.newPassword
+                      )}
+                      {...passwordForm.register("newPassword")}
+                    />
+                    <Button
+                      type="submit"
+                      size="sm"
+                      disabled={
+                        isAccountBusy || passwordForm.formState.isSubmitting
+                      }
+                    >
+                      Salvar
+                    </Button>
+                  </div>
+                  {passwordForm.formState.errors.newPassword && (
+                    <p className="text-xs font-medium text-coral-text">
+                      {passwordForm.formState.errors.newPassword.message}
+                    </p>
+                  )}
+                  {passwordMessage && (
+                    <p className="text-xs font-medium text-sage-text">
+                      {passwordMessage}
+                    </p>
+                  )}
+                </form>
+
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={isAccountBusy}
+                    onClick={async () => {
+                      await authClient.signOut();
+                      onOpenChange(false);
+                      router.refresh();
+                    }}
+                  >
+                    <SignOut size={15} weight="bold" />
+                    Sair da conta
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                <Link href="/login" onClick={() => onOpenChange(false)}>
+                  <Button size="sm" variant="default">
+                    Entrar para sincronizar
+                  </Button>
+                </Link>
+                <Link href="/cadastro" onClick={() => onOpenChange(false)}>
+                  <Button size="sm" variant="outline">
+                    Criar conta grátis
+                  </Button>
+                </Link>
+              </div>
+            )}
+          </div>
+
           <div className="rounded-2xl bg-surface-lavender p-4 text-sm text-primary">
-            <p className="font-semibold">Armazenamento Local-First ativo</p>
+            <p className="font-semibold">
+              Privacidade &amp; Direitos LGPD
+            </p>
             <p className="mt-1 text-xs text-text-secondary leading-relaxed">
               Todos os seus lançamentos, caixinhas, terceiros e conciliações
-              são gravados diretamente no IndexedDB do seu navegador (Dexie.js),
-              com IDs UUIDv7 e timestamps preparados para sincronização futura.
+              ficam salvos com segurança no seu navegador. Você pode exportar
+              uma cópia em JSON ou excluir seus dados a qualquer momento.{" "}
+              <Link
+                href="/privacidade"
+                onClick={() => onOpenChange(false)}
+                className="font-semibold text-primary underline"
+              >
+                Ver Política de Privacidade
+              </Link>
+              .
             </p>
           </div>
 
+          {accountError && (
+            <p
+              role="alert"
+              className="rounded-2xl bg-coral-bg/70 px-3.5 py-2.5 text-xs font-medium text-coral-text"
+            >
+              {accountError}
+            </p>
+          )}
+
           <div className="flex flex-col gap-2 rounded-2xl border border-border-subtle p-4">
+            <Button
+              variant="outline"
+              disabled={isAccountBusy}
+              onClick={handleExportJson}
+              className="justify-start"
+            >
+              <DownloadSimple size={17} weight="bold" />
+              Exportar meus dados (JSON - LGPD)
+            </Button>
+
             <Button
               variant="secondary"
               onClick={async () => {
@@ -434,9 +827,72 @@ export function SettingsDialog({
                 </div>
               </div>
             )}
+
+            {session?.user && (
+              <>
+                {!confirmDeleteAccount ? (
+                  <Button
+                    variant="coral"
+                    disabled={isAccountBusy}
+                    onClick={() => setConfirmDeleteAccount(true)}
+                    className="justify-start"
+                  >
+                    <Trash size={17} weight="bold" />
+                    Excluir minha conta e dados (LGPD)
+                  </Button>
+                ) : (
+                  <div className="flex flex-col gap-2 rounded-2xl bg-coral-bg/80 p-3">
+                    <p className="text-xs font-semibold text-coral-text">
+                      Ação irreversível: isso excluirá permanentemente sua conta
+                      e todos os seus dados na nuvem e neste navegador.
+                    </p>
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={isAccountBusy}
+                        onClick={() => setConfirmDeleteAccount(false)}
+                      >
+                        Cancelar
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="coral"
+                        disabled={isAccountBusy}
+                        onClick={handleDeleteAccount}
+                      >
+                        {isAccountBusy
+                          ? "Excluindo..."
+                          : "Confirmar exclusão definitiva"}
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
           </div>
         </TabsContent>
+        </div>
       </Tabs>
+  );
+
+  if (embedded) {
+    return tabsBody;
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogHeader>
+        <div>
+          <DialogTitle>Bancos &amp; Terceiros</DialogTitle>
+          <DialogDescription>
+            Gerencie seus bancos físicos, pessoas de compras compartilhadas e
+            dados locais.
+          </DialogDescription>
+        </div>
+        <DialogCloseButton onClick={() => onOpenChange(false)} />
+      </DialogHeader>
+      {tabsBody}
     </Dialog>
   );
 }
