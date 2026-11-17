@@ -35,6 +35,22 @@ export class BefinDatabase extends Dexie {
 
 export const db = new BefinDatabase();
 
+type LocalMutationListener = () => void;
+const mutationListeners = new Set<LocalMutationListener>();
+
+export function onLocalMutation(listener: LocalMutationListener): () => void {
+  mutationListeners.add(listener);
+  return () => {
+    mutationListeners.delete(listener);
+  };
+}
+
+export function notifyLocalMutation(): void {
+  for (const listener of mutationListeners) {
+    listener();
+  }
+}
+
 export function generateId(): string {
   return uuidv7();
 }
@@ -61,6 +77,7 @@ export async function addBank(input: {
     deleted_at: null,
   };
   await db.banks.add(record);
+  notifyLocalMutation();
   return record;
 }
 
@@ -76,11 +93,13 @@ export async function updateBank(
       : {}),
     updated_at: Date.now(),
   });
+  notifyLocalMutation();
 }
 
 export async function deleteBank(id: string): Promise<void> {
   const now = Date.now();
   await db.banks.update(id, { deleted_at: now, updated_at: now });
+  notifyLocalMutation();
 }
 
 /* ── Envelopes CRUD ──────────────────────────────────────────── */
@@ -119,6 +138,7 @@ export async function addEnvelope(input: {
     await db.envelopes.add(record);
   });
 
+  notifyLocalMutation();
   return record;
 }
 
@@ -147,11 +167,13 @@ export async function updateEnvelope(
       updated_at: now,
     });
   });
+  notifyLocalMutation();
 }
 
 export async function deleteEnvelope(id: string): Promise<void> {
   const now = Date.now();
   await db.envelopes.update(id, { deleted_at: now, updated_at: now });
+  notifyLocalMutation();
 }
 
 /* ── Third Parties CRUD ──────────────────────────────────────── */
@@ -164,6 +186,7 @@ export async function addThirdParty(name: string): Promise<ThirdPartyRecord> {
     deleted_at: null,
   };
   await db.third_parties.add(record);
+  notifyLocalMutation();
   return record;
 }
 
@@ -175,11 +198,13 @@ export async function updateThirdParty(
     name: name.trim(),
     updated_at: Date.now(),
   });
+  notifyLocalMutation();
 }
 
 export async function deleteThirdParty(id: string): Promise<void> {
   const now = Date.now();
   await db.third_parties.update(id, { deleted_at: now, updated_at: now });
+  notifyLocalMutation();
 }
 
 /* ── Transactions & Batch Operations ─────────────────────────── */
@@ -196,6 +221,7 @@ export async function addTransaction(
     deleted_at: null,
   };
   await db.transactions.add(record);
+  notifyLocalMutation();
   return record;
 }
 
@@ -213,12 +239,14 @@ export async function addTransactionsBulk(
     deleted_at: null,
   }));
   await db.transactions.bulkAdd(records);
+  notifyLocalMutation();
   return records;
 }
 
 export async function deleteTransaction(id: string): Promise<void> {
   const now = Date.now();
   await db.transactions.update(id, { deleted_at: now, updated_at: now });
+  notifyLocalMutation();
 }
 
 export async function settleTransactionsInDb(
@@ -241,6 +269,9 @@ export async function settleTransactionsInDb(
     }
   });
 
+  if (updatedCount > 0) {
+    notifyLocalMutation();
+  }
   return updatedCount;
 }
 
@@ -283,6 +314,7 @@ export async function saveReconciliationInDb(input: {
     deleted_at: null,
   };
   await db.reconciliations.add(record);
+  notifyLocalMutation();
   return record;
 }
 
@@ -333,6 +365,8 @@ export async function applyYieldSurplusToEmergencyFundInDb(params: {
       deleted_at: null,
     });
   });
+
+  notifyLocalMutation();
 }
 
 /* ── Initial Seed & Reset ────────────────────────────────────── */
@@ -544,6 +578,7 @@ export async function seedDefaultDataIfEmpty(): Promise<void> {
     );
 
     window.localStorage.setItem("befin_seeded_v1", "1");
+    notifyLocalMutation();
   })();
 
   try {
@@ -571,6 +606,16 @@ export async function clearAllLocalData(): Promise<void> {
   );
   if (typeof window !== "undefined") {
     window.localStorage.setItem("befin_seeded_v1", "1");
+    const keysToRemove: string[] = [];
+    for (let i = 0; i < window.localStorage.length; i++) {
+      const key = window.localStorage.key(i);
+      if (key?.startsWith("befin_sync_meta_v1:")) {
+        keysToRemove.push(key);
+      }
+    }
+    for (const key of keysToRemove) {
+      window.localStorage.removeItem(key);
+    }
   }
 }
 
