@@ -1,36 +1,106 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# befin
 
-## Getting Started
+Aplicação web mobile-first de **envelope budgeting** (_orçamento por envelopes_) projetada para dividir dinheiro concentrado em "Caixinhas" de diferentes bancos e realizar conciliação bancária periódica com precisão em centavos.
 
-First, run the development server:
+---
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+## Principais Funcionalidades
+
+- **Saldo Livre ("Sala de Espera"):** Toda receita entra primeiro no Saldo Livre e pode ser distribuída para as caixinhas por valor fixo (`R$`) ou percentual (`%`), sem perda de centavos.
+- **Caixinhas Acumulativas:** O saldo das caixinhas nunca reseta na virada do mês. Transferências entre caixinhas preservam o patrimônio total.
+- **Cartão de Crédito (`PENDING` vs `PAID`):** Compras no crédito abatem o saldo virtual da caixinha imediatamente, mas mantêm o dinheiro físico nos bancos até a quitação da fatura (individual ou em lote).
+- **Compras de Terceiros:** Despesas feitas para terceiros (`third_parties`) não abatem nenhuma caixinha virtual e ficam isoladas como _A Receber_ agrupado por pessoa.
+- **Conciliação Bancária (Equação da Verdade):** Compara os saldos físicos informados nos bancos com o saldo esperado pelo sistema, sugerindo envio de sobras compatíveis com rendimentos para a _Reserva de Emergência_ e listando lançamentos para auditoria manual em caso de falta.
+
+---
+
+## Arquitetura
+
+O **befin** segue uma arquitetura **Local-First**:
+
+1. **Leitura e escrita instantâneas no cliente:** Toda operação da interface acontece primeiro no **IndexedDB** via **Dexie.js**, garantindo resposta imediata mesmo offline.
+2. **Sincronização na nuvem (Turso / libSQL):** Um ledger _append-only_ baseado em `UUIDv7`, `updated_at` (Unix ms para _Last-Write-Wins_) e `deleted_at` (_soft delete_) sincroniza alterações incrementais via `POST /api/sync` com **Drizzle ORM**.
+3. **Precisão Matemática:** Todos os valores monetários são armazenados e operados exclusivamente como inteiros em centavos (`INTEGER`), sendo formatados para `BRL` (`pt-BR`) apenas na camada de exibição.
+
+### Estrutura de Pastas
+
+```text
+├── app/
+│   ├── api/sync/          # Endpoint transacional de sincronização (Push LWW + Pull)
+│   ├── caixinhas/         # Gestão de caixinhas, distribuição e transferências
+│   ├── conciliar/         # Calculadora da Equação da Verdade e auditoria
+│   ├── extrato/           # Histórico, filtros e quitação em lote
+│   └── page.tsx           # Visão geral (Início)
+├── drizzle/               # Migrations SQL versionadas
+└── src/
+    ├── components/        # Componentes de UI (shadcn/ui) e domínio
+    ├── db/                # Cliente Turso e schema Drizzle ORM
+    ├── hooks/             # Hooks reativos com Dexie
+    └── lib/               # Banco local (Dexie), domínio financeiro (ledger/money) e testes
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+---
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Stack & Créditos
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+- **[Next.js](https://nextjs.org/)** (App Router) & **[React](https://react.dev/)** — Framework e renderização
+- **[TypeScript](https://www.typescriptlang.org/)** — Tipagem estática (`strict`)
+- **[Tailwind CSS](https://tailwindcss.com/)** & **[shadcn/ui](https://ui.shadcn.com/)** — Design system (_Warm Editorial_) e componentes acessíveis
+- **[Phosphor Icons](https://phosphoricons.com/)** — Ícones da interface
+- **[Motion](https://motion.dev/)** — Transições e micro-interações
+- **[Dexie.js](https://dexie.org/)** — Persistência local-first no IndexedDB
+- **[Drizzle ORM](https://orm.drizzle.team/)** & **[Turso (libSQL)](https://turso.tech/)** — Schema tipado, migrations versionadas e banco na nuvem
+- **[Vitest](https://vitest.dev/)** — Suíte de testes unitários
 
-## Learn More
+---
 
-To learn more about Next.js, take a look at the following resources:
+## Como Rodar Localmente
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+### Pré-requisitos
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+- **Node.js** 20+
+- **pnpm** 10+
+- Conta no [Turso](https://turso.tech/) (para sincronização na nuvem)
 
-## Deploy on Vercel
+### 1. Instalar dependências
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+```bash
+pnpm install
+```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+### 2. Configurar variáveis de ambiente
+
+Crie/preencha o arquivo `.env.local` na raiz do projeto:
+
+```env
+TURSO_DATABASE_URL=libsql://seu-banco.turso.io
+TURSO_AUTH_TOKEN=seu-token-aqui
+```
+
+### 3. Aplicar migrations no Turso
+
+```bash
+pnpm db:migrate
+```
+
+### 4. Iniciar o servidor de desenvolvimento
+
+```bash
+pnpm dev
+```
+
+Acesse [http://localhost:3000](http://localhost:3000).
+
+---
+
+## Scripts Disponíveis
+
+| Comando            | Descrição                                            |
+| :----------------- | :--------------------------------------------------- |
+| `pnpm dev`         | Inicia o servidor de desenvolvimento                 |
+| `pnpm build`       | Gera o build de produção                             |
+| `pnpm lint`        | Executa a verificação do ESLint                      |
+| `pnpm test`        | Roda os testes unitários com Vitest                  |
+| `pnpm db:generate` | Gera novas migrations SQL a partir do schema Drizzle |
+| `pnpm db:migrate`  | Aplica migrations pendentes no Turso                 |
+| `pnpm db:studio`   | Abre o Drizzle Studio para inspecionar o banco       |
