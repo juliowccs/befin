@@ -97,6 +97,7 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
       });
     } catch (err) {
       if (activeUserIdRef.current !== currentUserId) return;
+      console.error("[SyncProvider] Erro ao sincronizar:", err);
 
       const metaAfter = getSyncMeta(currentUserId);
       if (!isBrowserOnline()) {
