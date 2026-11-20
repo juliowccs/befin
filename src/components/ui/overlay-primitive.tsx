@@ -3,7 +3,7 @@
 import * as React from "react";
 import { createPortal } from "react-dom";
 import { X } from "@phosphor-icons/react";
-import { AnimatePresence, motion } from "motion/react";
+import { AnimatePresence, motion, useDragControls } from "motion/react";
 import { editorialSpring, fastTransition, gentleSpring } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 
@@ -37,6 +37,7 @@ export function OverlayShell({
 }: OverlayShellProps) {
   const isClient = useIsClient();
   const isDrawer = variant === "drawer" || showHandleBar;
+  const dragControls = useDragControls();
 
   React.useEffect(() => {
     if (!open) return;
@@ -83,6 +84,8 @@ export function OverlayShell({
               animate={{ opacity: 1, y: 0, transition: gentleSpring }}
               exit={{ opacity: 0, y: "100%", transition: fastTransition }}
               drag="y"
+              dragControls={dragControls}
+              dragListener={false}
               dragConstraints={{ top: 0, bottom: 0 }}
               dragElastic={{ top: 0.05, bottom: 0.6 }}
               onDragEnd={(_, info) => {
@@ -91,15 +94,18 @@ export function OverlayShell({
                 }
               }}
               className={cn(
-                "relative z-10 w-full sm:max-w-lg max-h-[92dvh] overflow-y-auto rounded-t-3xl sm:rounded-3xl border border-border-subtle bg-surface p-5 sm:p-6 shadow-editorial-lg",
+                "relative z-10 w-full sm:max-w-lg max-h-[92dvh] overflow-y-auto overscroll-contain rounded-t-3xl sm:rounded-3xl border border-border-subtle bg-surface p-5 pb-8 sm:p-6 shadow-editorial-lg",
                 contentClassName
               )}
             >
               {showHandleBar && (
                 <div
                   aria-hidden="true"
-                  className="mx-auto mb-4 h-1.5 w-12 rounded-full bg-border-subtle sm:hidden"
-                />
+                  onPointerDown={(e) => dragControls.start(e)}
+                  className="mx-auto mb-2 flex w-full cursor-grab items-center justify-center py-2 touch-none active:cursor-grabbing sm:hidden"
+                >
+                  <div className="h-1.5 w-12 rounded-full bg-border-subtle" />
+                </div>
               )}
               {children}
             </motion.div>
